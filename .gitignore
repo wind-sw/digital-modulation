@@ -1,0 +1,92 @@
+# ==========================================
+# Python 字节码与缓存
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ==========================================
+# 虚拟环境
+# ==========================================
+venv/
+env/
+ENV/
+.venv/
+env.bak/
+venv.bak/
+
+# ==========================================
+# IDE 配置（VS Code / PyCharm）
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.spyderproject
+.spyproject
+.ropeproject
+
+# ==========================================
+# Jupyter Notebook
+# ==========================================
+.ipynb_checkpoints/
+*.ipynb
+
+# ==========================================
+# 操作系统文件
+# ==========================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ==========================================
+# 项目特定：数字通信/信号处理仿真输出
+# ==========================================
+
+# 生成的图表与仿真结果（docs/ 中的输出文件）
+docs/output*.jpg
+docs/output*.png
+docs/*.pdf
+docs/result_*
+
+# 日志与仿真数据
+*.log
+simulation_results/
+results/
+data/
+*.mat  # MATLAB 数据文件（如有交互）
+*.pkl  # Python pickle 缓存数据
+*.npy  # NumPy 二进制文件（如临时存储）
+*.npz
+
+# 大体积测试图像（可选：如果 test_images 是标准测试图则保留，若是生成的大文件则忽略）
+# test_images/*.tif
+# test_images/*.tiff
+
+# 临时设计文件备份
+*.gvdesign.bak
+
+# ==========================================
+# 敏感信息（如果涉及硬件配置）
+# ==========================================
+*.key
+config.ini
+secrets.py
