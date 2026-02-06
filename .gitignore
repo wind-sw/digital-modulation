@@ -66,6 +66,7 @@ docs/output*.jpg
 docs/output*.png
 docs/*.pdf
 docs/result_*
+generated/*.png
 
 # 日志与仿真数据
 *.log

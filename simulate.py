@@ -14,312 +14,25 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from typing import Optional, Tuple, Dict, Any, List
 import os
-import math  # 添加math模块用于erfc
 
 plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
-
 # ==========================================
-# Communication Blocks Implementation / 通信模块实现
+# 从blocks包导入通信系统组件 / Import from blocks package
 # ==========================================
-
-class UniformQuantizer:
-    """均匀量化器 / Uniform Quantizer"""
-    
-    def __init__(self, bit_depth: int, v_max: float, mode: str = "midrise"):
-        self.R = bit_depth
-        self.v_max = float(v_max)
-        self.mode = mode
-        self.L = 2 ** bit_depth  # 量化电平数
-        self.delta = (2 * self.v_max) / self.L  # 量化步长
-        
-    def quantize(self, signal: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        量化信号
-        Returns: (quantized_levels, level_indices)
-        """
-        # 限制信号范围
-        signal_clipped = np.clip(signal, -self.v_max, self.v_max - 1e-10)
-        
-        if self.mode == "midrise":
-            # 中升型：零点为判决边界
-            indices = np.floor((signal_clipped + self.v_max) / self.delta).astype(int)
-            indices = np.clip(indices, 0, self.L - 1)
-            levels = -self.v_max + (indices + 0.5) * self.delta
-        else:
-            # 中平型
-            indices = np.round((signal_clipped + self.v_max) / self.delta - 0.5).astype(int)
-            indices = np.clip(indices, 0, self.L - 1)
-            levels = -self.v_max + indices * self.delta
-            
-        return levels, indices
-    
-    def dequantize(self, indices: np.ndarray) -> np.ndarray:
-        """反量化"""
-        indices = np.clip(indices, 0, self.L - 1)
-        if self.mode == "midrise":
-            return -self.v_max + (indices + 0.5) * self.delta
-        else:
-            return -self.v_max + indices * self.delta
-
-
-class ADConverter:
-    """模数/数模转换器 / A/D D/A Converter"""
-    
-    @staticmethod
-    def encode(values: np.ndarray, bit_depth: int) -> np.ndarray:
-        """
-        将整数数组编码为比特流（MSB first）
-        """
-        values = values.astype(int)
-        bits = np.unpackbits(values.astype(np.uint8))
-        # 如果bit_depth < 8，只保留低位
-        if bit_depth < 8:
-            mask = np.tile([0]*(8-bit_depth) + [1]*bit_depth, len(values))
-            bits = bits[mask.astype(bool)]
-        return bits
-    
-    @staticmethod
-    def decode(bit_stream: np.ndarray, bit_depth: int) -> np.ndarray:
-        """
-        将比特流解码为整数数组
-        """
-        # 补齐到8的倍数
-        padding = (8 - (len(bit_stream) % 8)) % 8
-        if padding > 0:
-            bit_stream = np.pad(bit_stream, (0, padding), 'constant')
-        
-        bytes_data = np.packbits(bit_stream.astype(np.uint8))
-        return bytes_data
-
-
-class QPSKModulator:
-    """QPSK调制解调器 / QPSK Modulator/Demodulator"""
-    
-    def __init__(self, samples_per_symbol: int = 8, bit_energy: float = 4.0):
-        self.sps = samples_per_symbol
-        self.Eb = bit_energy
-        # QPSK每个符号2比特，符号能量Es = 2*Eb
-        self.Es = 2 * bit_energy
-        # 归一化因子，确保平均符号能量为Es
-        self.scale = np.sqrt(self.Es / 2)
-        
-    def modulate(self, bit_stream: np.ndarray) -> np.ndarray:
-        """
-        QPSK调制：每2比特映射到一个符号
-        00 -> (1,1), 01 -> (-1,1), 11 -> (-1,-1), 10 -> (1,-1)
-        """
-        # 确保偶数个比特
-        if len(bit_stream) % 2 != 0:
-            bit_stream = np.pad(bit_stream, (0, 1), 'constant')
-        
-        # 将比特流分组为符号（格雷编码映射）
-        bits_i = bit_stream[0::2]  # 奇数位（或偶数位，取决于定义）
-        bits_q = bit_stream[1::2]  # 另一位
-        
-        # 映射到星座点：0 -> +1, 1 -> -1
-        i = 1 - 2 * bits_i  # 0->1, 1->-1
-        q = 1 - 2 * bits_q
-        
-        # 上采样并应用脉冲成型（简单矩形脉冲）
-        symbols = (i + 1j * q) * self.scale
-        
-        # 每个符号扩展为sps个采样点
-        modulated = np.repeat(symbols, self.sps)
-        return modulated
-    
-    def demodulate(self, received_signal: np.ndarray) -> np.ndarray:
-        """
-        QPSK解调：匹配滤波（积分 dump）+ 判决
-        """
-        # 确保长度是sps的整数倍
-        length = (len(received_signal) // self.sps) * self.sps
-        received_signal = received_signal[:length]
-        
-        # reshape以便积分
-        shaped = received_signal.reshape(-1, self.sps)
-        
-        # 积分dump（匹配滤波器）
-        symbols = np.mean(shaped, axis=1)
-        
-        # 判决
-        i_decision = (np.real(symbols) < 0).astype(int)
-        q_decision = (np.imag(symbols) < 0).astype(int)
-        
-        # 并串转换
-        bits = np.zeros(len(symbols) * 2, dtype=int)
-        bits[0::2] = i_decision
-        bits[1::2] = q_decision
-        
-        return bits
-    
-    def get_constellation(self, received_signal: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray]:
-        """获取星座图坐标"""
-        if received_signal is not None:
-            length = (len(received_signal) // self.sps) * self.sps
-            shaped = received_signal[:length].reshape(-1, self.sps)
-            symbols = np.mean(shaped, axis=1)
-            return np.real(symbols), np.imag(symbols)
-        else:
-            # 理想星座点
-            ideal = np.array([1+1j, -1+1j, -1-1j, 1-1j]) * self.scale
-            return np.real(ideal), np.imag(ideal)
-
-
-class AWGNChannel:
-    """AWGN信道 / Additive White Gaussian Noise Channel"""
-    
-    def simulate(self, signal: np.ndarray, noise_power: float) -> np.ndarray:
-        """添加高斯白噪声"""
-        noise = np.sqrt(noise_power/2) * (np.random.randn(len(signal)) + 1j*np.random.randn(len(signal)))
-        return signal + noise
-    
-    def simulate_with_header(self, signal: np.ndarray, noise_power: float, 
-                            header_length_symbols: int = 8) -> np.ndarray:
-        """
-        仿真传输，保护前N个符号（Header）不受噪声影响
-        """
-        received = self.simulate(signal, noise_power)
-        
-        # 保护Header：用原始信号替换
-        header_samples = header_length_symbols * 8  # 假设每个符号8个采样点
-        if header_samples > 0 and header_samples < len(signal):
-            received[:header_samples] = signal[:header_samples]
-        
-        return received
-
-
-class Hamming1511:
-    """
-    汉明(15,11)编码器 / Hamming(15,11) Encoder/Decoder
-    11个数据比特 + 4个校验比特 = 15个码字符号
-    可纠正1位错误
-    """
-    
-    def __init__(self):
-        # 生成矩阵 G (11x15)
-        self.G = np.array([
-            [1,0,0,0,0,0,0,0,0,0,0, 1,1,0,0],
-            [0,1,0,0,0,0,0,0,0,0,0, 1,0,1,0],
-            [0,0,1,0,0,0,0,0,0,0,0, 0,1,1,0],
-            [0,0,0,1,0,0,0,0,0,0,0, 1,1,1,0],
-            [0,0,0,0,1,0,0,0,0,0,0, 1,0,0,1],
-            [0,0,0,0,0,1,0,0,0,0,0, 0,1,0,1],
-            [0,0,0,0,0,0,1,0,0,0,0, 1,1,0,1],
-            [0,0,0,0,0,0,0,1,0,0,0, 0,0,1,1],
-            [0,0,0,0,0,0,0,0,1,0,0, 1,0,1,1],
-            [0,0,0,0,0,0,0,0,0,1,0, 0,1,1,1],
-            [0,0,0,0,0,0,0,0,0,0,1, 1,1,1,1]
-        ], dtype=int)
-        
-        # 校验矩阵 H (4x15)
-        self.H = np.array([
-            [1,1,0,1,1,0,1,0,1,0,1, 1,0,0,0],
-            [1,0,1,1,0,1,1,0,0,1,1, 0,1,0,0],
-            [0,1,1,1,0,0,0,1,1,1,1, 0,0,1,0],
-            [0,0,0,0,1,1,1,1,1,1,1, 0,0,0,1]
-        ], dtype=int)
-        
-        self.n = 15  # 码长
-        self.k = 11  # 信息位长
-        
-    def encode(self, bit_stream: np.ndarray) -> Tuple[np.ndarray, int]:
-        """
-        编码
-        
-        Returns:
-            Tuple[np.ndarray, int]: (编码后的比特流, padding长度)
-        """
-        # 补齐到11的倍数
-        padding = (self.k - (len(bit_stream) % self.k)) % self.k
-        if padding > 0:
-            bit_stream = np.pad(bit_stream, (0, padding), 'constant')
-        
-        # 分组编码
-        data = bit_stream.reshape(-1, self.k)
-        codewords = np.mod(data @ self.G, 2)
-        return codewords.flatten(), padding  # 返回padding信息以便解码时去除
-    
-    def decode(self, received: np.ndarray, padding: int = 0) -> np.ndarray:
-        """
-        译码（硬判决+纠错）
-        """
-        # 补齐到15的倍数
-        if len(received) % self.n != 0:
-            pad_len = self.n - (len(received) % self.n)
-            received = np.pad(received, (0, pad_len), 'constant')
-        
-        codewords = received.reshape(-1, self.n)
-        
-        # 计算伴随式
-        syndrome = np.mod(codewords @ self.H.T, 2)
-        
-        # 查找错误图样并纠正
-        decoded = []
-        for i, (cw, synd) in enumerate(zip(codewords, syndrome)):
-            if np.any(synd):
-                # 将伴随式转换为整数索引
-                err_pos = int(''.join(map(str, synd[::-1])), 2) - 1
-                if 0 <= err_pos < self.n:
-                    cw = cw.copy()
-                    cw[err_pos] = 1 - cw[err_pos]  # 翻转错误比特
-            decoded.extend(cw[:self.k])  # 取前11位信息位
-        
-        result = np.array(decoded)
-        # 去除padding
-        if padding > 0:
-            result = result[:-padding]
-        return result
-
-
-# ==========================================
-# Utility Functions / 工具函数
-# ==========================================
-
-def calculate_signal_power(signal: np.ndarray) -> float:
-    """计算信号功率"""
-    return float(np.mean(np.abs(signal)**2))
-
-def calculate_uniform_quantization_snr(R: int, signal_power: float, v_max: float) -> float:
-    """
-    计算理论量化SNR（dB）
-    对于均匀量化：SNR ≈ 6.02*R + 10*log10(12) - 10*log10((2*v_max)^2/signal_power)
-    """
-    if signal_power <= 0:
-        return 0
-    # 简化公式：假设信号均匀分布在[-v_max, v_max]
-    snr_linear = (3 * (2**R)**2 * signal_power) / ((2*v_max)**2)
-    return 10 * np.log10(snr_linear)
-
-def calculate_practical_snr(original: np.ndarray, error: np.ndarray) -> float:
-    """计算实际SNR（dB）"""
-    signal_power = np.mean(original**2)
-    noise_power = np.mean(error**2)
-    if noise_power <= 1e-15:
-        return 100.0  # 上限
-    return 10 * np.log10(signal_power / noise_power)
-
-def calculate_qpsk_ber(Eb: float, N0: float) -> float:
-    """
-    计算QPSK理论误码率
-    QPSK等效于两路正交BPSK，每路误码率Q(sqrt(2*Eb/N0))
-    总误码率近似等于单路误码率（因为符号错误主要由单比特错误主导）
-    """
-    if N0 <= 0:
-        return 0.0
-    snr = np.sqrt(Eb / N0)
-    # 使用math.erfc替代np.erfc（NumPy 2.0+已移除）
-    ber = 0.5 * math.erfc(snr)
-    return float(ber)
-
-def calculate_bit_error_rate(tx: np.ndarray, rx: np.ndarray) -> float:
-    """计算比特误码率"""
-    min_len = min(len(tx), len(rx))
-    if min_len == 0:
-        return 0.0
-    errors = np.sum(tx[:min_len] != rx[:min_len])
-    return float(errors / min_len)
+from blocks.quantizer import UniformQuantizer
+from blocks.converter import ADConverter
+from blocks.modulator import QPSKModulator
+from blocks.channel import AWGNChannel
+from blocks.error_correction import Hamming1511
+from blocks.utils import (
+    calculate_signal_power,
+    calculate_uniform_quantization_snr,
+    calculate_practical_snr,
+    calculate_qpsk_ber,
+    calculate_bit_error_rate
+)
 
 
 # ==========================================
@@ -364,22 +77,33 @@ def simulate_communication_system(input_signal: np.ndarray, bit_depth: int = 8,
     # 注意：UniformQuantizer返回的是电平值，我们需要的是索引
     # 重新计算索引（确保范围0-2^R-1）
     level_indices = ((quantized_signal + v_max) / quantizer.delta - 0.5).astype(int)
-    level_indices = np.clip(level_indices, 0, quantizer.L - 1)
+    level_indices = np.clip(level_indices, 0, quantizer.num_levels - 1)
     
     bit_stream = adc_dac.encode(level_indices, bit_depth)
     
     # 3. 信道编码（汉明）
-    padding_info = 0
+    # Record original length for accurate truncation after decoding
+    # 记录原始长度以便解码后精确截断
+    original_bit_len = len(bit_stream)
+    
     if hamming is not None:
-        bit_stream_encoded, padding_info = hamming.encode(bit_stream)
+        bit_stream_encoded = hamming.encode(bit_stream)
+        # Ensure even length for QPSK modulation (each symbol carries 2 bits)
+        # 确保偶数长度以适应QPSK调制（每符号携带2比特）
+        if len(bit_stream_encoded) % 2 != 0:
+            bit_stream_encoded = np.append(bit_stream_encoded, 0)
     else:
         bit_stream_encoded = bit_stream
+        # Ensure even length for QPSK
+        if len(bit_stream_encoded) % 2 != 0:
+            bit_stream_encoded = np.append(bit_stream_encoded, 0)
     
     # 4. QPSK调制
     modulated_signal = qpsk.modulate(bit_stream_encoded)
     
     # 计算理论QPSK误码率
-    # noise_power是线性功率，N0 = noise_power / 符号率，这里简化处理
+    # noise_power is linear power, N0 = noise_power / symbol_rate, simplified here
+    # noise_power是线性功率，N0 = noise_power / 符号率，此处简化处理
     ber_qpsk_theory = calculate_qpsk_ber(bit_energy, noise_power)
     
     # ==========================================
@@ -402,20 +126,39 @@ def simulate_communication_system(input_signal: np.ndarray, bit_depth: int = 8,
     # 6. QPSK解调
     demodulated_bits = qpsk.demodulate(received_signal)
     
-    # 长度对齐
+    # 长度对齐：确保接收比特流与发送编码比特流长度一致
+    # Length alignment: ensure received bit stream matches transmitted encoded bit stream length
     min_len = min(len(bit_stream_encoded), len(demodulated_bits))
     tx_aligned = bit_stream_encoded[:min_len]
     rx_aligned = demodulated_bits[:min_len]
     
-    # 计算解调后原始误码率
+    # For FEC, ensure rx_aligned length is multiple of 15 to avoid padding issues in decoder
+    # 对于FEC情况，确保rx_aligned长度是15的倍数，避免解码器补零干扰最后一个码字
+    if hamming is not None:
+        remainder = len(rx_aligned) % 15
+        if remainder != 0:
+            # Truncate to nearest lower multiple of 15
+            # 截断至最近的15的倍数（丢弃不完整的最后一个码字）
+            valid_len = len(rx_aligned) - remainder
+            rx_aligned = rx_aligned[:valid_len]
+            tx_aligned = tx_aligned[:valid_len]
+    
+    # 计算解调后原始误码率（在纠错前）
     ber_before_correction = calculate_bit_error_rate(tx_aligned, rx_aligned)
     
     # 7. 信道解码（汉明）
+    # Decode and truncate to original length to remove padding bits added during encoding
+    # 解码并截断至原始长度，去除编码时添加的补零位
     ber_after_correction: Optional[float] = None
-    decoded_bits = rx_aligned  # 默认无纠错
+    decoded_bits = rx_aligned  # Default: no FEC correction applied
     
     if hamming is not None:
-        decoded_bits = hamming.decode(rx_aligned, padding_info)
+        decoded_bits_full = hamming.decode(rx_aligned)
+        # Truncate to original data length (remove Hamming padding and QPSK padding if any)
+        # 截断至原始数据长度（去除汉明编码补零和QPSK补零）
+        decoded_bits = decoded_bits_full[:original_bit_len]
+        
+        # Calculate BER after correction (compare with original bit stream before encoding)
         # 计算纠错后误码率（与原始信息比特比较）
         min_len_dec = min(len(bit_stream), len(decoded_bits))
         ber_after_correction = calculate_bit_error_rate(
@@ -425,10 +168,12 @@ def simulate_communication_system(input_signal: np.ndarray, bit_depth: int = 8,
     # 8. 信源解码（比特转索引）
     received_indices = adc_dac.decode(decoded_bits, bit_depth)
     
-    # 确保长度匹配
+    # 确保长度匹配（去除可能的填充比特造成的多余索引）
     if len(received_indices) > len(input_signal):
         received_indices = received_indices[:len(input_signal)]
     elif len(received_indices) < len(input_signal):
+        # Pad with edge values if too short (should not happen in normal operation)
+        # 若过短则边缘填充（正常运行中不应发生）
         received_indices = np.pad(received_indices, 
                                   (0, len(input_signal) - len(received_indices)), 
                                   'edge')
@@ -441,7 +186,12 @@ def simulate_communication_system(input_signal: np.ndarray, bit_depth: int = 8,
     snr_reception = calculate_practical_snr(input_signal, error_signal)
     
     # 获取星座图（使用接收信号）
-    constellation = qpsk.get_constellation(received_signal)
+    # Get constellation from received signal (manual calculation for compatibility)
+    # 从接收信号获取星座图（手动计算以保持兼容性）
+    length = (len(received_signal) // samples_per_symbol) * samples_per_symbol
+    shaped = received_signal[:length].reshape(-1, samples_per_symbol)
+    symbols = np.mean(shaped, axis=1)
+    constellation = (np.real(symbols), np.imag(symbols))
     
     # 编译指标
     metrics = {
@@ -629,7 +379,7 @@ def process_image_transmission(noise_level: float, bit_depth: int,
     print(f"  {'Channel SNR':<35} {metrics_fec['snr_channel_db']:>15.2f} dB {metrics_no_fec['snr_channel_db']:>15.2f} dB")
     print(f"  {'Reception SNR':<35} {metrics_fec['snr_reception_db']:>15.2f} dB {metrics_no_fec['snr_reception_db']:>15.2f} dB")
     print(f"  {'BER before correction':<35} {metrics_fec['ber_before_correction']:>15.2e} {metrics_no_fec['ber_before_correction']:>15.2e}")
-    if metrics_fec['ber_after_correction']:
+    if metrics_fec['ber_after_correction'] is not None:
         print(f"  {'BER after correction':<35} {metrics_fec['ber_after_correction']:>15.2e} {'N/A':>15}")
 
 
@@ -648,8 +398,8 @@ if __name__ == "__main__":
     # 运行不同参数组合的仿真
     test_cases = [
         (0.05, 8),   # 低噪声，8比特
-        (0.1, 8),    # 中噪声，8比特（原始参数）
-        (0.2, 6),    # 高噪声，6比特
+        (3, 8),    # 中噪声，8比特（原始参数）
+        (3, 6),    # 高噪声，6比特
     ]
     
     for noise, bits in test_cases:

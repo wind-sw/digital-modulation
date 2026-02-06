@@ -12,20 +12,26 @@ def calculate_signal_power(signal):
     """
     Calculate average signal power / 计算信号平均功率
     
-    Formula: P = E[x²] = (1/N) * Σ(x[n]²)
-    公式：功率 = 信号平方的均值
+    Formula: P = E[|x|²] = (1/N) * Σ|x[n]|²
+    公式：功率 = 信号模值平方的均值
+    
+    Supports both real and complex signals (e.g., baseband QPSK).
+    支持实数和复数信号（如基带QPSK信号）。
     
     Parameters / 参数:
     ----------------
     signal : np.ndarray
-        Input signal samples / 输入信号采样值
+        Input signal samples (real or complex) / 输入信号采样值（实数或复数）
         
     Returns / 返回:
     -------------
     power : float
         Average power of the signal / 信号的平均功率
     """
-    return np.mean(signal ** 2)
+    # Use absolute value squared to handle complex signals correctly
+    # For complex: |a+jb|² = a² + b², which equals the signal power
+    # 使用模值平方以正确处理复数信号，对于复数：|a+jb|² = a² + b²，即为信号功率
+    return np.mean(np.abs(signal) ** 2)
 
 
 def calculate_uniform_quantization_snr(bit_depth, signal_power, v_max):

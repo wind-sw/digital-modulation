@@ -106,9 +106,8 @@ class ADConverter:
         
         levels = np.packbits(full_bytes, axis=1, bitorder='big').flatten()
         
-        # Apply offset correction for signed representation / 有符号表示的偏移校正
-        if bit_depth > 1:
-            offset = 2 ** (bit_depth - 1)
-            levels = levels - offset
-            
+        # Note: Quantization level indices are unsigned (0 to 2^R-1)
+        # No offset correction needed as they represent direct level indices
+        # 注意：量化电平索引为无符号整数（0到2^R-1），表示直接电平编号，无需偏移校正
+        
         return levels

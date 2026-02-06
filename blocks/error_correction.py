@@ -32,31 +32,35 @@ class Hamming1511:
         Initialize Hamming(15,11) codec / 初始化编解码器
         
         Generator matrix G and parity-check matrix H are defined according 
-        to standard Hamming(15,11) construction.
+        to standard Hamming(15,11) construction with systematic form.
+        生成矩阵G和校验矩阵H按照标准汉明(15,11)的系统码形式构造。
         """
-        # Parity check matrix H (4x15) / 校验矩阵H
-        # Columns are binary representations of 1-15 / 列为1-15的二进制表示
-        self.parity_check_matrix = np.array([
-            [1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1],
-            [0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-            [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1],
-            [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 1]
+        # Generator matrix G (11x15) in systematic form [I_11 | P]
+        # 系统形式生成矩阵 G = [I_11 | P]
+        self.generator_matrix = np.array([
+            [1,0,0,0,0,0,0,0,0,0,0, 1,0,0,0],
+            [0,1,0,0,0,0,0,0,0,0,0, 0,1,0,0],
+            [0,0,1,0,0,0,0,0,0,0,0, 0,0,1,0],
+            [0,0,0,1,0,0,0,0,0,0,0, 0,0,0,1],
+            [0,0,0,0,1,0,0,0,0,0,0, 1,0,0,1],
+            [0,0,0,0,0,1,0,0,0,0,0, 0,1,0,1],
+            [0,0,0,0,0,0,1,0,0,0,0, 0,0,1,1],
+            [0,0,0,0,0,0,0,1,0,0,0, 1,1,0,0],
+            [0,0,0,0,0,0,0,0,1,0,0, 0,1,1,0],
+            [0,0,0,0,0,0,0,0,0,1,0, 1,0,1,0],
+            [0,0,0,0,0,0,0,0,0,0,1, 0,1,0,1]
         ], dtype=int)
         
-        # Generator matrix G (11x15) / 生成矩阵G
-        # Systematic form: [I_11 | P] / 系统形式：[I_11 | P]
-        self.generator_matrix = np.array([
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
-            [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
-            [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-            [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
-            [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1],
-            [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1],
-            [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1]
+        # Parity-check matrix H (4x15) in systematic form [P^T | I_4]
+        # Must satisfy G * H^T = 0 (mod 2)
+        # 系统形式校验矩阵 H = [P^T | I_4]，满足 G * H^T = 0 (模2)
+        # P^T is the transpose of the parity part of G (columns 12-15, 0-indexed as 11-14)
+        # P^T 是 G 的校验部分（第12-15列，0-based索引为11-14）的转置
+        self.parity_check_matrix = np.array([
+            [1,0,0,0,1,0,0,1,0,1,0, 1,0,0,0],
+            [0,1,0,0,0,1,0,1,1,0,1, 0,1,0,0],
+            [0,0,1,0,0,0,1,0,1,1,0, 0,0,1,0],
+            [0,0,0,1,1,1,1,0,0,0,1, 0,0,0,1]
         ], dtype=int)
         
         # Syndrome table for error correction / 伴随式查表纠错
@@ -66,15 +70,23 @@ class Hamming1511:
     def _build_syndrome_table(self):
         """
         Build syndrome-to-error-position lookup table / 构建伴随式-错误位置查找表
+        
+        For each possible single-bit error position, calculate the syndrome
+        (which equals the corresponding column of H) and map it to the bit position.
+        对每个可能的单比特错误位置，计算伴随式（等于H的对应列）并映射到比特位置。
         """
         table = {}
         for i in range(15):
             error_pattern = np.zeros(15, dtype=int)
             error_pattern[i] = 1
+            # Syndrome s = H * e^T (mod 2), where e is the error pattern
+            # 伴随式 s = H * e^T (模2)，e为错误图样
             syndrome = np.dot(self.parity_check_matrix, error_pattern) % 2
+            # Convert 4-bit syndrome to integer (0-15) for table lookup
+            # 将4位伴随式转换为整数(0-15)用于查表
             syndrome_int = int(np.packbits(syndrome, bitorder='big')[0])
             table[syndrome_int] = i
-        # Syndrome 0 = no error / 伴随式0=无错误
+        # Syndrome 0 indicates no error / 伴随式0表示无错误
         table[0] = -1
         return table
     
@@ -141,7 +153,7 @@ class Hamming1511:
         decoded_data = np.zeros(num_blocks * 11, dtype=int)
         
         for i in range(num_blocks):
-            block = received_bits[i*15:(i+1)*15]
+            block = received_bits[i*15:(i+1)*15].copy()  # Copy to avoid modifying original array
             
             # Calculate syndrome: s = H * r^T (mod 2)
             # 计算伴随式：s = H * r^T (模2)
