@@ -1,66 +1,246 @@
-# Signals & Digital Communication
-![Signals & Digital Communication blocks](docs/diagram.png)
-Digital communications is pretty much the way we communicate between devices, either wirelessly or with physical cable, and when it comes to engeneering, it's always interesting to understand how this communication happens. I initially developed this code during the [Signal Processing and Communication](https://www.isel.pt/en/subjects/signal-processing-and-communication-leim) class that i took at ISEL, and been optimizing occasionally. 
-The theme of the class revolved around multimedia communications systems, and how this was divided in blocks, that when all put together, had to efficiently process data. In order to apply those concepts, i had to code an entire system, with Python, as a simulation of what would happen with real hardware.
-![](https://www.google-analytics.com/collect?v=1&t=event&tid=UA-100869248-2&cid=555&ec=github&ea=pageview&el=digital-modulation&ev=1)
-The modules that compose the system are:
+# Digital Communication System Simulation / 数字通信系统仿真
 
-1. Sampling (not exactly covered on code)
-2. Quantization with Mid-rise and Mid-Tread Quantizer, as well as a minimalistic version of the ITU-T G.771 μ-law
-3. Codification/Decodification (convert integers to bits and bits to ints)
-4. Error Control Codes, with an Hamming(11,15) as the error-correction code
-5. Channel Modulation/Demodulation, using a QPSK as the modulation technique
-6. Actual channel simulation, with the implementation of an AWGN Channel
+<p align="center">
+  <img src="docs/diagram.png" alt="System Block Diagram" width="600"/>
+</p>
 
-It's also possible to measure the BER and SNR, as well as drawing the constelations.
-If you are into actually learning what every block is, i will leave some links here:
+A comprehensive Python-based simulation framework for digital communication systems, covering the complete transmission chain from source quantization to channel decoding.
 
- - [QPSK Modulation](https://www.gaussianwaves.com/2010/10/qpsk-modulation-and-demodulation-2/)
- - [Quantization](https://en.wikipedia.org/wiki/Quantization)
- - [Hamming Code](https://www.geeksforgeeks.org/hamming-code-in-computer-network/)
- - [AWGN Channel](https://en.wikipedia.org/wiki/Additive_white_Gaussian_noise)
+基于 Python 的数字通信系统综合仿真框架，涵盖从信源量化到信道解码的完整传输链路。
 
-Even though this code is not fully optimized, it still works. I'm working on improving the perfomance of this, but that might take a while.
+---
 
-This code is compatible with Python 3.7 or newer
+## Acknowledgments / 致谢
 
-## "What's the point of this code" or "What am i seeing?"
-Digital communications is everywhere, is in the USB-C port that charges your phone, on the Wifi you are connected to or even on the television you watch. Even though that this is not something you need to know by heart, but can give you some advantage, for example, to when you are complaining about your ISP service. You probably already measured the speed of your internet connection right? That's digital communications, right there!
-There are many more applicable uses of these concepts, but many of them are just "in the background", and just sort of happen.
+This project is forked and enhanced from the original [alicescfernandes/digital-modulation: Simulation of a communication channel written in Python](https://github.com/alicescfernandes/digital-modulation) repository. Special thanks to the original author for establishing the foundational architecture and educational approach to digital communications simulation.
 
+本项目 fork 自原 [alicescfernandes/digital-modulation: Simulation of a communication channel written in Python](https://github.com/alicescfernandes/digital-modulation) 仓库。特别感谢原作者奠定了数字通信仿真的基础架构与教学理念。
 
-## Output explanation
-The ideia on this code is that you transmit a set of data, and on the receptor, you should be able to read that data, and correct any bits that were affected by the noise
+---
 
-When you run the simulation, the code will output some images, one of them is this one:
-![Lena Output](docs/output1.jpg)
+## System Architecture / 系统架构
 
-Notice how one of the images has noise in it. The algorithm should be able to either correct some data or just cause even more error.
-In the case above, it corrected almost all of the errors, and was able to almost reconstruct all of the image.
+The simulation implements a complete end-to-end digital communication pipeline:
 
-## Usage
-Just run the ``simulate.py`` file
+本仿真实现了完整的端到端数字通信流程：
 
-# Perfomance results
+```
+Analog Signal → Quantization → Source Coding → Channel Coding → Modulation → Channel → Demodulation → Decoding → Reconstruction
+模拟信号 → 量化 → 信源编码 → 信道编码 → 调制 → 信道 → 解调 → 解码 → 重建
+```
 
-I'm keeping this table as a reference to the time it took to process an image. With code optimizations this should take less time at every iteration.  
-Please note that perfomance is bound to the computer where this script runs, so i included CPU & RAM info.
+### Core Modules / 核心模块
 
-| Image          | Bits Resolution | Noise | With error correction? | Time to complete (in minutes) | CPU                             | RAM             | 
-|----------------|-----------------|-------|------------------------|-------------------------------|---------------------------------|-----------------|
-| lena_color.tif | 1               | 3     | Yes                    | 2.8988948663075766            | 2,7 GHz Dual-Core Intel Core i5 | 8 GB 1867 MHz DDR3
-| lena_color.tif | 1               | 3     | No                     | 2.183815133571625             | 2,7 GHz Dual-Core Intel Core i5 | 8 GB 1867 MHz DDR3
-| lena_color.tif | 8               | 2     | Yes                    | 16.62703206539154             | 2,7 GHz Dual-Core Intel Core i5 | 8 GB 1867 MHz DDR3
-| lena_color.tif | 8               | 2     | No                     | 9.562310695648193             | 2,7 GHz Dual-Core Intel Core i5 | 8 GB 1867 MHz DDR3
+| Module | Description | 描述 |
+|--------|-------------|------|
+| `quantizer.py` | Uniform Quantizer (Mid-rise/Mid-tread) | 均匀量化器（中升型/中平型） |
+| `converter.py` | ADC/DAC (Level-to-Bits conversion) | 模数/数模转换（电平-比特转换） |
+| `error_correction.py` | Hamming(15,11) FEC | 汉明(15,11)前向纠错编码 |
+| `modulator.py` | QPSK Modulation/Demodulation | QPSK 调制解调 |
+| `channel.py` | AWGN Channel with Header Protection | 带头部保护的 AWGN 信道 |
+| `utils.py` | SNR/BER calculation utilities | 信噪比/误码率计算工具 |
+| `simulate.py` | End-to-end simulation & visualization | 端到端仿真与可视化 |
 
+---
 
-## TODO
+## Features / 功能特性
 
-Process audio with this script  
-More modulation techniques  
-DPCM Encoding/Decoding.  
-More types of CRC's   
-Translate code to english (is this even a todo?)  
+### 1. Complete Transmission Chain / 完整传输链路
+- **Quantization**: Configurable bit-depth (R) with theoretical SNR calculation
+- **量化**: 可配置比特深度(R)，含理论信噪比计算
+- **Source Coding**: Integer-to-binary packing/unpacking
+- **信源编码**: 整数到二进制打包/解包
+- **Channel Coding**: Hamming(15,11) single-error correction
+- **信道编码**: 汉明(15,11)单比特纠错
+- **Modulation**: QPSK with Gray coding and constellation visualization
+- **调制**: 格雷编码 QPSK 及星座图可视化
+- **Channel**: AWGN with adjustable noise power and header protection
+- **信道**: 可调噪声功率及头部保护的加性高斯白噪声
 
-Loop optimization. At the current state, this code takes some time to perform, and the issue is on the loop of the individual modules. 
-The ideia is to vectorize pretty much every function that i can, so the code performs better.  
+### 2. Image Transmission Simulation / 图像传输仿真
+Simulate multimedia data transmission with visual output comparison:
+
+多媒体数据传输仿真，提供可视化输出对比：
+
+- Side-by-side comparison: Original | With FEC | Without FEC
+- 并排对比：原始图像 | 带纠错 | 无纠错
+- Constellation diagrams for channel quality analysis
+- 星座图用于信道质量分析
+- Automatic metrics: BER (pre/post correction), SNR at each stage
+- 自动指标：纠错前后误码率、各阶段信噪比
+
+### 3. Performance Metrics / 性能指标
+- **BER Calculation**: Theoretical (QPSK) vs Practical (Bit-by-bit comparison)
+- **误码率计算**: 理论值(QPSK) vs 实际值(逐比特对比)
+- **SNR Monitoring**: Quantization SNR, Channel SNR, Reception SNR
+- **信噪比监测**: 量化信噪比、信道信噪比、接收信噪比
+- **Error Correction Gain**: Quantified improvement with Hamming codes
+- **纠错增益**: 汉明码带来的性能提升量化
+
+---
+
+## Installation / 安装
+
+```bash
+# Clone the repository / 克隆仓库
+git clone <repository-url>
+cd digital-modulation
+
+# Install dependencies / 安装依赖
+pip install numpy matplotlib pillow scipy
+
+```
+
+**Requirements / 环境要求:**
+- Python 3.7+
+- NumPy
+- Matplotlib (for visualization / 可视化)
+- Pillow (for image processing / 图像处理)
+- SciPy (for BER calculation / 误码率计算)
+
+---
+
+## Usage / 使用方法
+
+### Basic Simulation / 基础仿真
+
+Run the main simulation with default parameters (Lena image test pattern):
+
+使用默认参数运行主仿真（Lena图像测试模式）：
+
+```bash
+python simulate.py
+```
+
+### Parameter Configuration / 参数配置
+
+Modify the test cases in `simulate.py`:
+
+修改 `simulate.py` 中的测试用例：
+
+```python
+# Format: (noise_power, bit_depth)
+# 格式：(噪声功率, 量化比特数)
+test_cases = [
+    (0.05, 8),   # Low noise, 8-bit quantization / 低噪声，8位量化
+    (0.1, 8),    # Medium noise / 中等噪声
+    (0.5, 6),    # High noise, 6-bit quantization / 高噪声，6位量化
+]
+```
+
+### Custom Image Input / 自定义图像输入
+
+```python
+from simulate import process_image_transmission
+
+# Process custom image with specific parameters
+# 使用特定参数处理自定义图像
+process_image_transmission(
+    noise_level=0.5,      # AWGN noise power / AWGN噪声功率
+    bit_depth=8,          # Quantization bits / 量化比特数
+    image_path="path/to/your/image.jpg"
+)
+```
+
+---
+
+## Output Examples / 输出示例
+
+### Image Transmission Results / 图像传输结果
+
+```
+generated/
+├── image_with_fec_R8_N0.05.png      # Reconstructed with FEC / 带纠错重建
+├── image_no_fec_R8_N0.05.png        # Reconstructed without FEC / 无纠错重建
+├── comparison_R8_N0.05.png          # Side-by-side comparison / 并排对比图
+└── constellation_R8_N0.05.png       # QPSK constellation / QPSK星座图
+```
+
+### Console Metrics / 控制台指标
+
+```
+Metrics Summary / 性能指标摘要:
+  Parameter                         With FEC       Without FEC
+  --------------------------------- --------------- ---------------
+  Quantization SNR (theory)                 dB
+  Channel SNR                               dB          dB
+  Reception SNR                             dB          dB
+  BER before correction                            
+  BER after correction                             
+```
+
+---
+
+## Technical Details / 技术细节
+
+### Quantization / 量化
+- **Mid-rise**: Uniform steps without zero level, optimal for AC signals
+- **中升型**: 无零电平的均匀步长，适用于交流信号
+- **Mid-tread**: Includes zero level, suitable for signals with DC component
+- **中平型**: 包含零电平，适用于含直流分量的信号
+
+### QPSK Modulation / QPSK调制
+- Gray coding to minimize bit errors per symbol error
+- 格雷编码以最小化每个符号错误的比特错误数
+- Square-root raised cosine pulse shaping (rectangular in current implementation)
+- 平方根升余弦脉冲成形（当前实现为矩形脉冲）
+- Coherent detection with perfect carrier recovery assumption
+- 相干检测，假设理想载波恢复
+
+### Hamming(15,11) FEC / 汉明纠错
+- Code rate: 11/15 ≈ 0.733
+- 码率：11/15 ≈ 0.733
+- Single-bit error correction capability
+- 单比特纠错能力
+- Systematic encoding: Data bits + Parity bits
+- 系统码编码：数据位 + 校验位
+
+### AWGN Channel / AWGN信道
+- Complex baseband noise model
+- 复数基带噪声模型
+- Configurable noise power (variance σ²)
+- 可配置噪声功率（方差σ²）
+- Header protection mode for synchronization/pilot simulation
+- 头部保护模式用于同步/导频仿真
+
+---
+
+## Educational Value / 教育价值
+
+This simulation serves as a practical tool for understanding:
+
+本仿真可作为理解以下内容的实践工具：
+
+- **Quantization Effects**: Visualize bit-depth impact on image quality
+- **量化效应**: 可视化比特深度对图像质量的影响
+- **Error Correction**: Compare images with/without FEC under same noise conditions
+- **纠错编码**: 在相同噪声条件下对比有无FEC的图像
+- **Modulation Impairments**: Observe constellation spreading with increasing noise
+- **调制损伤**: 观察噪声增加时的星座图扩散
+- **End-to-End Tradeoffs**: Balance between quantization precision, bandwidth (code rate), and power (SNR)
+- **端到端权衡**: 量化精度、带宽（码率）和功率（信噪比）之间的平衡
+
+---
+
+## Contributing / 贡献
+
+Contributions are welcome! Areas for improvement:
+
+欢迎贡献！以下是可改进方向：
+
+- [ ] Vectorization of loop operations for performance
+- [ ] 循环操作向量化以提升性能
+- [ ] Additional modulation schemes (16-QAM, FSK)
+- [ ] 更多调制方式（16-QAM、FSK）
+- [ ] Audio signal processing support
+- [ ] 音频信号处理支持
+- [ ] Differential PCM (DPCM) implementation
+- [ ] 差分脉冲编码调制(DPCM)实现
+- [ ] Additional CRC and error correction codes
+- [ ] 更多CRC及纠错码
+
+---
+
+*For educational purposes in digital communications and signal processing.*
+*用于数字通信与信号处理学习目的。*
+*This is written by KIMI*
