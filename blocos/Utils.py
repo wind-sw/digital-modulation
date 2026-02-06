@@ -1,103 +1,174 @@
-import numpy as np;
-from scipy.special import erfc
+"""
+Utility Functions for Digital Communications / 数字通信工具函数
 
-def erro_quantizacao(sinal,sinal_quantificado):
+Mathematical utilities for signal power calculation, SNR/BER computation.
+信号功率计算、信噪比/误码率计算的数学工具函数。
+"""
+
+import numpy as np
+
+
+def calculate_signal_power(signal):
     """
-    Calcula um sinal que corresponde ao erro de quantificacao
-    """
-    return sinal-sinal_quantificado
-
-def teste():
-    print(1)
-
-def n0(sigma_quadrado):
-    '''
-    Calcular N0 (com o ruido do canal - sigma ao quadrado)
-    '''
-    return sigma_quadrado * 2
-
-def snr_uniforme(R, Potencia, Vmax):
-    """
-    Aplica formula de calculo do SNR do Quantificador Uniforme
+    Calculate average signal power / 计算信号平均功率
     
-    R: Numero de bits
-    P: Potencia do sinal
-    Vmax: Voltagem máxima do sinal
+    Formula: P = E[x²] = (1/N) * Σ(x[n]²)
+    公式：功率 = 信号平方的均值
+    
+    Parameters / 参数:
+    ----------------
+    signal : np.ndarray
+        Input signal samples / 输入信号采样值
+        
+    Returns / 返回:
+    -------------
+    power : float
+        Average power of the signal / 信号的平均功率
     """
-    return 6.02 * R + 10 * np.log10(3 * (Potencia / Vmax**2))
+    return np.mean(signal ** 2)
 
-def snr_nao_uniforme(R):
+
+def calculate_uniform_quantization_snr(bit_depth, signal_power, v_max):
     """
-    Aplica formula de calculo do SNR na quantificação não uniforme, de acordo com a lei µ
-    R: Numero de bits
+    Calculate theoretical SNR for uniform quantization / 计算均匀量化的理论信噪比
+    
+    For uniform quantizers with sufficient levels (R > 4), the theoretical SNR is:
+    SNR = 6.02*R + 1.76 + 10*log10(σ_x²/V_max²) (dB)
+    
+    对于电平数充足的均匀量化器(R>4)，理论信噪比公式为：
+    6.02×比特数 + 1.76 + 10×log10(信号方差/峰值²) (分贝)
+    
+    Parameters / 参数:
+    ----------------
+    bit_depth : int
+        Number of quantization bits (R) / 量化比特数R
+    signal_power : float
+        Signal power σ_x² / 信号功率σ_x²
+    v_max : float
+        Peak signal amplitude / 信号峰值幅度
+        
+    Returns / 返回:
+    -------------
+    snr_db : float
+        Signal-to-noise ratio in decibels / 信噪比（分贝值）
     """
-    return 6 * R - 10
-
-#SNR em DB (P sinal / P ruido) convertido a db
-def snr_pratico(sinal, erro):
-    '''
-    Calcula a SNR prática em função de dois sinais
-    '''
-    return 10 * np.log10( np.sum(sinal ** 2) / np.sum(erro ** 2) )
+    # Avoid log of zero / 避免对零取对数
+    if signal_power <= 0:
+        return -np.inf
+    
+    snr_db = 6.02 * bit_depth + 1.76 + 10 * np.log10(signal_power / (v_max ** 2))
+    return snr_db
 
 
-def potencia(sinal):
-    '''
-    Calcular a potencia do sinal
-    '''
-    return np.sum( (sinal ** 2) / len(sinal) )
+def calculate_practical_snr(original_signal, noise_signal):
+    """
+    Calculate practical SNR from signals / 从信号计算实际信噪比
+    
+    SNR = 10 * log10(P_signal / P_noise)
+    信噪比 = 10×log10(信号功率/噪声功率)
+    
+    Parameters / 参数:
+    ----------------
+    original_signal : np.ndarray
+        Original clean signal / 原始纯净信号
+    noise_signal : np.ndarray
+        Noise or error component / 噪声或误差分量
+        
+    Returns / 返回:
+    -------------
+    snr_db : float
+        Signal-to-noise ratio in decibels / 信噪比（分贝）
+    """
+    signal_power = calculate_signal_power(original_signal)
+    noise_power = calculate_signal_power(noise_signal)
+    
+    if noise_power <= 0:
+        return np.inf
+    
+    snr_linear = signal_power / noise_power
+    snr_db = 10 * np.log10(snr_linear)
+    return snr_db
 
 
-def ber_hamming(n, k, ber):
-    '''
-    Calcula o BER de acordo com o Código de Hamming
-    '''
-    r_c = k / n
-    ber_linha = (3 * (n-1) / 2) * (ber ** 2)
-    return ber_linha
-
-def ber_repeticao(n,ber):
-    '''
-    Calcula o BER de acordo com o Código de Repeticao
-    '''
-    r_c = 1 / n
-    s = 1
-    k = int(n+1/2)  # 2+1/2 = 1.5
-    ber_linha = (np.math.factorial(n) / (np.math.factorial(s)  * np.math.factorial(k))) * ber**(n+1/2)
-    return ber_linha
-
-def ber_paridade(n,ber):
-    '''
-    Calcula o BER de acordo com o Código de Paridade
-    '''
-    r_c = (n-1)/n #Razão código
-    ber_linha = (n-1) * (ber**2)
-    return ber_linha
-
-def ber_pratico(sinal_1,sinal_2):
-    bits_errados = np.sum(np.logical_xor(sinal_1, sinal_2))
-    ber = bits_errados / len(sinal_1)
-    return ber;
-
-def eb_qpsk(A,Tb):
-    '''
-    Calcula Energia de bit da modulacao QPSK
-    '''
-    return 1/2 * (A**2) * Tb
+def calculate_qpsk_ber(bit_energy, noise_psd):
+    """
+    Calculate theoretical bit error rate for QPSK / 计算QPSK理论误码率
+    
+    QPSK BER formula: Pb = Q(sqrt(2*Eb/N0))
+    where Q is the Q-function (tail probability of Gaussian distribution)
+    
+    QPSK误码率公式：Pb = Q(√(2×Eb/N0))
+    其中Q为Q函数（高斯分布的右尾概率）
+    
+    Parameters / 参数:
+    ----------------
+    bit_energy : float
+        Energy per bit (Eb) / 每比特能量Eb
+    noise_psd : float
+        Noise power spectral density (N0) / 噪声功率谱密度N0
+        
+    Returns / 返回:
+    -------------
+    ber : float
+        Bit error probability / 误码概率
+    """
+    from scipy.special import erfc
+    # Q(x) = 0.5 * erfc(x / sqrt(2))
+    # For QPSK: Pb = Q(sqrt(2*Eb/N0))
+    snr_per_bit = 2 * bit_energy / noise_psd if noise_psd > 0 else np.inf
+    ber = 0.5 * erfc(np.sqrt(snr_per_bit / 2))
+    return ber
 
 
-def bt_qpsk(alpha, Rb):
-    '''
-    Calcula largura de banda QPSK
-    '''
-    return Rb/2 * (1+alpha)
+def calculate_bit_error_rate(tx_bits, rx_bits):
+    """
+    Calculate practical bit error rate (BER) / 计算实际误码率
+    
+    BER = (Number of bit errors) / (Total number of bits transmitted)
+    误码率 = 错误比特数 / 传输总比特数
+    
+    Parameters / 参数:
+    ----------------
+    tx_bits : np.ndarray
+        Transmitted bit sequence / 发送比特序列
+    rx_bits : np.ndarray
+        Received bit sequence / 接收比特序列
+        
+    Returns / 返回:
+    -------------
+    ber : float
+        Bit error rate [0, 1] / 误码率，范围[0,1]
+    """
+    # Ensure same length / 确保长度一致
+    min_length = min(len(tx_bits), len(rx_bits))
+    tx_aligned = tx_bits[:min_length]
+    rx_aligned = rx_bits[:min_length]
+    
+    # Count errors / 统计错误数
+    errors = np.sum(tx_aligned != rx_aligned)
+    ber = errors / min_length if min_length > 0 else 0.0
+    return ber
 
 
-def ber_qpsk(Eb,n_0):
-    '''
-    Calcula o BER de acordo com a modulação QPSK
-    '''
-    if(n_0 ==0 ): return 0
-    return 1/2 * erfc(np.sqrt(Eb/n_0))
-
-
+def calculate_noise_psd(noise_power):
+    """
+    Calculate noise power spectral density N0 / 计算噪声功率谱密度N0
+    
+    For AWGN channel with bandwidth B: N0 = P_noise / B
+    Here we assume normalized bandwidth (B=1) for simulation.
+    
+    对于带宽为B的AWGN信道：N0 = 噪声功率/B
+    此处仿真假设归一化带宽(B=1)。
+    
+    Parameters / 参数:
+    ----------------
+    noise_power : float
+        Total noise power / 总噪声功率
+        
+    Returns / 返回:
+    -------------
+    n0 : float
+        Noise power spectral density / 噪声功率谱密度
+    """
+    # Normalized single-sided PSD / 归一化单边功率谱密度
+    return noise_power
